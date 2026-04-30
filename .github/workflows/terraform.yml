@@ -10,6 +10,11 @@ on:
     paths:
       - 'infra/**'
 
+permissions:
+  id-token: write   
+  contents: read
+
+  
 env:
   TF_VERSION: 1.6.6
   AWS_REGION: ${{ secrets.AWS_REGION }}
