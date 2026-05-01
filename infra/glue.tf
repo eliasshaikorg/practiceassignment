@@ -39,3 +39,10 @@ resource "aws_glue_job" "externalrevenue" {
   worker_type       = "G.1X"
   number_of_workers = 2
 }
+
+# 5. Upload sample data  to S3 raw zone
+resource "aws_s3_object" "glue_script" {
+  bucket = "s3-raw-zone-dev-bucket"
+  key    = "data/data.sql"
+  source = "data/data.sql"
+}
