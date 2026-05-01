@@ -20,7 +20,7 @@ resource "aws_iam_role_policy_attachment" "glue_service" {
 
 # 3. Upload your script to S3
 resource "aws_s3_object" "glue_script" {
-  bucket = "glue-scripts-application-dev-bucket"
+  bucket = "s3-glue-scripts-application-dev-bucket"
   key    = "glue/scripts/gj-rev-ext-search.py"
   source = "scripts/gj-rev-ext-search.py" # Local path to your script
 }
