@@ -23,6 +23,7 @@ resource "aws_s3_object" "glue_script" {
   bucket = "s3-glue-scripts-application-dev-bucket"
   key    = "glue/scripts/gj-rev-ext-search.py"
   source = "scripts/gj-rev-ext-search.py" # Local path to your script
+  source_hash = filebase64sha256("scripts/gj-rev-ext-search.py")
 }
 
 # 4. Define the Glue Job
