@@ -7,3 +7,13 @@ resource "aws_s3_bucket" "cicdbucket" {
     Environment = "Dev"
   }
 }
+
+# Create the S3 Bucket
+resource "aws_s3_bucket" "gluescripts" {
+  bucket = "glue-scripts-application-dev-bucket"
+
+  tags = {
+    Name        = "glue-scripts-application-dev-bucket"
+    Environment = "Dev"
+  }
+}
