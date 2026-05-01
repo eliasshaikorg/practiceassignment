@@ -17,3 +17,13 @@ resource "aws_s3_bucket" "gluescripts" {
     Environment = "Dev"
   }
 }
+
+# Create the S3 Bucket for datalake rawzone
+resource "aws_s3_bucket" "rawzone" {
+  bucket = "s3-raw-zone-dev-bucket"
+
+  tags = {
+    Name        = "s3-raw-zone-dev-bucket"
+    Environment = "Dev"
+  }
+}
