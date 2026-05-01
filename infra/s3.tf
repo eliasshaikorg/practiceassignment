@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # Create the S3 Bucket
 resource "aws_s3_bucket" "cicd-bucket" {
   bucket = "s3-terraform-cicd-bucket-dev"
