@@ -23,7 +23,9 @@ df = dynamic_frame.toDF()
 df.show(truncate=False)
 row_count = df.count()
 print(f"Read {row_count} rows from s3://s3-raw-zone-dev-bucket/externalclickdata/data.sql")
+print("-------------------")
 print(df)
+
 
 # Write the result out as Parquet to the conformed S3 bucket.
 output_path = "s3://s3-conformed-zone-dev-bucket/externalclickdata/cleaneddata/"
