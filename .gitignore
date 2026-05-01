@@ -427,3 +427,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+terraform.tfstate
+terraform.tfstate.backup
