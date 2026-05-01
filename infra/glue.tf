@@ -18,7 +18,57 @@ resource "aws_iam_role_policy_attachment" "glue_service" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
-# 3. Upload your script to S3
+# 3. Grant Glue access to S3 script and data buckets
+resource "aws_iam_role_policy" "glue_s3_access" {
+  name = "GlueS3AccessPolicy"
+  role = aws_iam_role.glue_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:Get*"
+        ]
+        Resource = "arn:aws:s3:::s3-glue-scripts-application-dev-bucket/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = "arn:aws:s3:::s3-glue-scripts-application-dev-bucket"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:Get*",
+          "s3:Put*",
+          "s3:Delete*"
+        ]
+        Resource = [
+          "arn:aws:s3:::s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*",
+          "arn:aws:s3:::s3-conformed-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*",
+          "arn:aws:s3:::s3-curated-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}",
+          "arn:aws:s3:::s3-conformed-zone-dev-bucket-${data.aws_caller_identity.current.account_id}",
+          "arn:aws:s3:::s3-curated-zone-dev-bucket-${data.aws_caller_identity.current.account_id}"
+        ]
+      }
+    ]
+  })
+}
+
+# 4. Upload your script to S3
 resource "aws_s3_object" "glue_script" {
   bucket = "s3-glue-scripts-application-dev-bucket"
   key    = "glue/scripts/gj-rev-ext-search.py"

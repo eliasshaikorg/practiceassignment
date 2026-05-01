@@ -26,6 +26,7 @@ print(f"Read {row_count} rows from s3://s3-raw-zone-dev-bucket/externalclickdata
 print("-------------------")
 print("-------------------")
 print("-------------------")
+print("-------------------")
 print(df)
 
 
