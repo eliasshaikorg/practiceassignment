@@ -42,7 +42,7 @@ resource "aws_glue_job" "externalrevenue" {
 
 # 5. Upload sample data  to S3 raw zone
 resource "aws_s3_object" "sample-data" {
-  bucket = "s3-raw-zone-dev-bucket"
+  bucket = "s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}"
   key    = "externalclickdata/data.sql"
   source = "data/data.sql"
 }

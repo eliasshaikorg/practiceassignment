@@ -24,6 +24,7 @@ df.show(truncate=False)
 row_count = df.count()
 print(f"Read {row_count} rows from s3://s3-raw-zone-dev-bucket/externalclickdata/data.sql")
 print("-------------------")
+print("-------------------")
 print(df)
 
 
