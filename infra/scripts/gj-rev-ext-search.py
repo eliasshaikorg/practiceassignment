@@ -13,7 +13,7 @@ job.init(args['JOB_NAME'], args)
 # Read the tab-delimited data.sql file from S3
 dynamic_frame = glueContext.create_dynamic_frame.from_options(
     connection_type="s3",
-    connection_options={"paths": ["s3://s3-raw-zone-dev-bucket/externalclickdata/data.sql"]},
+    connection_options={"paths": ["s3://s3-raw-zone-dev-bucket/externalclickdata/inputdata.sql"]},
     format="csv",
     format_options={"withHeader": True, "separator": "\t"}
 )
@@ -22,7 +22,7 @@ dynamic_frame = glueContext.create_dynamic_frame.from_options(
 df = dynamic_frame.toDF()
 df.show(truncate=False)
 row_count = df.count()
-print(f"Read {row_count} rows from s3://s3-raw-zone-dev-bucket/externalclickdata/data.sql")
+print(f"Read {row_count} rows from s3://s3-raw-zone-dev-bucket/externalclickdata/inputdata.sql")
 print("-------------------")
 print("-------------------")
 print("-------------------")
