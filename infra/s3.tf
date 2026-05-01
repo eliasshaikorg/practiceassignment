@@ -27,3 +27,24 @@ resource "aws_s3_bucket" "rawzone" {
     Environment = "Dev"
   }
 }
+
+# Create the S3 Bucket for datalake conformed zone
+resource "aws_s3_bucket" "conformedzone" {
+  bucket = "s3-conformed-zone-dev-bucket"
+
+  tags = {
+    Name        = "s3-conformed-zone-dev-bucket"
+    Environment = "Dev"
+  }
+}
+
+
+# Create the S3 Bucket for datalake curated zone
+resource "aws_s3_bucket" "curatedzone" {
+  bucket = "s3-curated-zone-dev-bucket"
+
+  tags = {
+    Name        = "s3-curated-zone-dev-bucket"
+    Environment = "Dev"
+  }
+}
