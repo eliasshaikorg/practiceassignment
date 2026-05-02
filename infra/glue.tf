@@ -48,9 +48,9 @@ resource "aws_iam_role_policy" "glue_s3_access" {
           "s3:Delete*"
         ]
         Resource = [
-          "arn:aws:s3:::s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*",
-          "arn:aws:s3:::s3-conformed-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*",
-          "arn:aws:s3:::s3-curated-zone-dev-bucket-${data.aws_caller_identity.current.account_id}/*"
+          "arn:aws:s3:::s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}/*",
+          "arn:aws:s3:::s3-conformeddev-bucket-${data.aws_caller_identity.current.account_id}/*",
+          "arn:aws:s3:::s3-curateddev-bucket-${data.aws_caller_identity.current.account_id}/*"
         ]
       },
       {
@@ -59,9 +59,9 @@ resource "aws_iam_role_policy" "glue_s3_access" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}",
-          "arn:aws:s3:::s3-conformed-zone-dev-bucket-${data.aws_caller_identity.current.account_id}",
-          "arn:aws:s3:::s3-curated-zone-dev-bucket-${data.aws_caller_identity.current.account_id}"
+          "arn:aws:s3:::s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}",
+          "arn:aws:s3:::s3-conformeddev-bucket-${data.aws_caller_identity.current.account_id}",
+          "arn:aws:s3:::s3-curateddev-bucket-${data.aws_caller_identity.current.account_id}"
         ]
       }
     ]
@@ -91,9 +91,9 @@ resource "aws_glue_job" "externalrevenue" {
   number_of_workers = 2
 }
 
-# 5. Upload sample data  to S3 raw zone
+# 5. Upload sample data  to S3 raw 
 resource "aws_s3_object" "sample-data" {
-  bucket = "s3-raw-zone-dev-bucket-${data.aws_caller_identity.current.account_id}"
+  bucket = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
   key    = "externalclickdata/inputdata.sql"
   source = "data/inputdata.sql"
 }
