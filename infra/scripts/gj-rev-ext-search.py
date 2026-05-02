@@ -26,6 +26,8 @@ print(f"Read {row_count} rows from s3://s3-rawdev-bucket-528733132057/externalcl
 print("-------------------")
 print("-------------------")
 print("-------------------")
+print("-------------------")
+print("-------------------")
 print(df)
 
 
