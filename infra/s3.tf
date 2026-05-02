@@ -20,3 +20,33 @@ resource "aws_s3_bucket" "gluescripts" {
   }
 }
 
+# Create the S3 Bucket for datalake raw
+resource "aws_s3_bucket" "raw" {
+  bucket = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name        = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
+    Environment = "Dev"
+  }
+}
+
+# Create the S3 Bucket for datalake conformed 
+resource "aws_s3_bucket" "conformed" {
+  bucket = "s3-conformeddev-bucket-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name        = "s3-conformeddev-bucket-${data.aws_caller_identity.current.account_id}"
+    Environment = "Dev"
+  }
+}
+
+
+# Create the S3 Bucket for datalake curated 
+resource "aws_s3_bucket" "curated" {
+  bucket = "s3-curateddev-bucket-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name        = "s3-curateddev-bucket-${data.aws_caller_identity.current.account_id}"
+    Environment = "Dev"
+  }
+}
