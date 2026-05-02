@@ -134,13 +134,23 @@ base_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/c
 product_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/product_level/"
 revenue_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/revenue_summary/"
 
+base_csv_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/cleaneddata_csv/"
+product_csv_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/product_level_csv/"
+revenue_csv_output_path = "s3://s3-conformeddev-bucket-528733132057/externalclickdata/revenue_summary_csv/"
+
 df.write.mode("overwrite").parquet(base_output_path)
 print(f"Wrote base cleaned data to {base_output_path} as Parquet")
+df.write.mode("overwrite").option("header", "true").csv(base_csv_output_path)
+print(f"Wrote base cleaned data to {base_csv_output_path} as CSV")
 
 grouped_product_df.write.mode("overwrite").parquet(product_output_path)
 print(f"Wrote product-level data to {product_output_path} as Parquet")
+grouped_product_df.write.mode("overwrite").option("header", "true").csv(product_csv_output_path)
+print(f"Wrote product-level data to {product_csv_output_path} as CSV")
 
 revenue_per_event_df.write.mode("overwrite").parquet(revenue_output_path)
 print(f"Wrote revenue summary data to {revenue_output_path} as Parquet")
+revenue_per_event_df.write.mode("overwrite").option("header", "true").csv(revenue_csv_output_path)
+print(f"Wrote revenue summary data to {revenue_csv_output_path} as CSV")
 
 job.commit()
