@@ -1,16 +1,36 @@
 """
 AWS Glue Job: Conformed -> Curated
-Reads the product-level conformed data from S3, identifies hits that:
-  1. Came from an external search engine referrer (Google, Bing, Yahoo, MSN, etc.)
-  2. Are purchase events (event_list contains "1")
-
-Then aggregates total revenue by (search_engine_domain, search_keyword) and
-writes a tab-delimited output file named:
-    YYYY-mm-dd_SearchKeywordPerformance.tab
-
-This directly answers the client's business question:
+-----------------------------------------------------------------------
+Answers the business question:
     "How much revenue is the client getting from external Search Engines,
      and which keywords are performing the best based on revenue?"
+
+Session Attribution Logic
+--------------------------
+A visitor's session is identified by their IP address.
+
+  Step 1 — Read ALL HITS (base table from Script 1).
+            For each IP, find the true first hit (lowest hit_time_gmt)
+            across ALL page types — not just product pages.
+            This is critical: the entry hit for many visitors is a Home
+            or category page that carries no product_list and would be
+            missing if we only looked at the product-level table.
+            If that first hit's referrer is an external search engine,
+            capture the domain and keyword. IPs that did not enter via
+            a search engine are excluded.
+
+  Step 2 — Read PRODUCT-LEVEL HITS (product table from Script 1).
+            Keep only rows where event_list contains the standalone
+            purchase event "1" AND product_total_revenue > 0.
+
+  Step 3 — JOIN session search origin (Step 1) onto purchase rows
+            (Step 2) by IP. This attributes each purchase to the
+            keyword that brought the visitor in.
+
+  Step 4 — Aggregate total revenue by (search_engine_domain, keyword),
+            sort descending, write tab-delimited output.
+
+Output: YYYY-mm-dd_SearchKeywordPerformance.tab
 """
 
 import sys
@@ -21,7 +41,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.utils import getResolvedOptions
 from pyspark.context import SparkContext
-from pyspark.sql import functions as F
+from pyspark.sql import Window, functions as F
 from pyspark.sql.types import StringType
 
 # ---------------------------------------------------------------------------
@@ -41,60 +61,71 @@ logger = glueContext.get_logger()
 # Constants
 # ---------------------------------------------------------------------------
 
+# Table 1 written by Script 1: ALL hits (needed for true first-hit per IP)
+ALL_HITS_INPUT_PATH = (
+    "s3://s3-conformeddev-bucket-528733132057/externalclickdata/all_hits/"
+)
+
+# Table 2 written by Script 1: product-level rows (needed for revenue)
 PRODUCT_INPUT_PATH = (
     "s3://s3-conformeddev-bucket-528733132057/externalclickdata/product_level/"
 )
+
 CURATED_OUTPUT_PATH = (
     "s3://s3-curateddev-bucket-528733132057/externalclickdata/search_keyword_performance/"
 )
 
-# Output filename: YYYY-mm-dd_SearchKeywordPerformance.tab
 OUTPUT_FILENAME = f"{date.today().strftime('%Y-%m-%d')}_SearchKeywordPerformance.tab"
 
-# Search engines and the query-string parameter that carries the keyword
-SEARCH_ENGINE_KEYWORD_PARAMS = {
-    "google.com":  ["q"],
-    "bing.com":    ["q"],
-    "yahoo.com":   ["p", "q"],
-    "msn.com":     ["q"],
-    "ask.com":     ["q"],
-    "aol.com":     ["q", "query"],
-    "baidu.com":   ["wd", "word"],
+# Known search engines and the query-string params that carry the keyword
+SEARCH_ENGINE_PARAMS = {
+    "google.com":     ["q"],
+    "bing.com":       ["q"],
+    "yahoo.com":      ["p", "q"],
+    "msn.com":        ["q"],
+    "ask.com":        ["q"],
+    "aol.com":        ["q", "query"],
+    "baidu.com":      ["wd", "word"],
     "duckduckgo.com": ["q"],
 }
 
 # ---------------------------------------------------------------------------
-# UDFs
+# UDFs — parse referrer URL
 # ---------------------------------------------------------------------------
 
-def extract_search_engine(referrer: str) -> str | None:
-    """Return the registered domain if the referrer is a known search engine."""
-    if not referrer:
+def _registered_domain(hostname: str):
+    """Strip 'www.' and return the domain if it's a known search engine."""
+    if not hostname:
         return None
-    try:
-        host = urlparse(referrer).hostname or ""
-        host = host.lower().lstrip("www.")
-        for domain in SEARCH_ENGINE_KEYWORD_PARAMS:
-            if host == domain or host.endswith("." + domain):
-                return domain
-    except Exception:
-        pass
+    host = hostname.lower().lstrip("www.")
+    for domain in SEARCH_ENGINE_PARAMS:
+        if host == domain or host.endswith("." + domain):
+            return domain
     return None
 
 
-def extract_keyword(referrer: str) -> str | None:
-    """Extract the search keyword from a referrer URL."""
+def extract_search_engine(referrer: str):
     if not referrer:
         return None
     try:
-        host = urlparse(referrer).hostname or ""
-        host = host.lower().lstrip("www.")
-        for domain, params in SEARCH_ENGINE_KEYWORD_PARAMS.items():
-            if host == domain or host.endswith("." + domain):
-                qs = parse_qs(urlparse(referrer).query)
-                for param in params:
-                    if param in qs and qs[param]:
-                        return qs[param][0].strip()
+        return _registered_domain(urlparse(referrer).hostname or "")
+    except Exception:
+        return None
+
+
+def extract_keyword(referrer: str):
+    if not referrer:
+        return None
+    try:
+        parsed = urlparse(referrer)
+        domain = _registered_domain(parsed.hostname or "")
+        if not domain:
+            return None
+        qs = parse_qs(parsed.query)
+        for param in SEARCH_ENGINE_PARAMS[domain]:
+            if param in qs and qs[param]:
+                # Lowercase so "Ipod" and "ipod" are treated as the same keyword
+                return qs[param][0].strip().lower()
     except Exception:
         pass
     return None
@@ -104,102 +135,158 @@ udf_search_engine = F.udf(extract_search_engine, StringType())
 udf_keyword       = F.udf(extract_keyword,       StringType())
 
 # ---------------------------------------------------------------------------
-# Helper class
+# Processor class
 # ---------------------------------------------------------------------------
 
 class SearchKeywordRevenueProcessor:
     """
-    Answers the business question:
-        Revenue from external search engines, ranked by keyword performance.
+    Attributes purchase revenue to the search engine / keyword that
+    initiated each visitor's session (identified by IP address).
+
+    Uses two conformed tables:
+      all_hits_df  — every page hit, used to find the true first hit per IP
+      product_df   — product-level rows, used to extract purchase revenue
     """
 
     def __init__(self, spark_session, logger):
-        self.spark = spark_session
+        self.spark  = spark_session
         self.logger = logger
 
     # ------------------------------------------------------------------
     # Ingest
     # ------------------------------------------------------------------
 
-    def read_conformed(self, path: str):
+    def read_all_hits(self, path: str):
         df = self.spark.read.parquet(path)
-        self.logger.info(f"[read_conformed] Loaded {df.count()} rows from {path}")
+        self.logger.info(f"[read_all_hits] {df.count()} rows from {path}")
+        return df
+
+    def read_products(self, path: str):
+        df = self.spark.read.parquet(path)
+        self.logger.info(f"[read_products] {df.count()} rows from {path}")
         return df
 
     # ------------------------------------------------------------------
-    # Filter: purchase events only
+    # Step 1: True first hit per IP → search engine + keyword
     # ------------------------------------------------------------------
 
-    def filter_purchase_events(self, df):
+    def get_session_search_origin(self, all_hits_df):
         """
-        Revenue is only actualised on a Purchase event (event_list contains "1").
-        A row qualifies when "1" appears as a standalone token in event_list,
-        e.g. "1", "1,2", "2,1,12" — but NOT "10", "11", "12", etc.
+        Finds the very first hit for each IP across ALL page types
+        (not just product pages). If that hit's referrer is an external
+        search engine, captures the domain and keyword.
+
+        IPs whose first hit did NOT come from a search engine are dropped
+        — they are not search-driven sessions and should not appear in
+        the keyword performance report.
+
+        Returns: ip | search_engine_domain | search_keyword
         """
-        purchase_df = df.filter(
-            F.col("event_list").isNotNull()
-            & (
-                (F.col("event_list") == "1")
-                | F.col("event_list").rlike(r"(^|,)\s*1\s*(,|$)")
+        window = Window.partitionBy("ip").orderBy(F.col("hit_time_gmt").asc())
+
+        session_df = (
+            all_hits_df
+            # Rank all hits per IP by time; rank=1 is the entry (first) hit
+            .withColumn("_rank", F.rank().over(window))
+            .filter(F.col("_rank") == 1)
+            .drop("_rank")
+            # Parse the referrer of that first hit
+            .withColumn("search_engine_domain", udf_search_engine(F.col("referrer")))
+            .withColumn("search_keyword",        udf_keyword(F.col("referrer")))
+            # Drop IPs that didn't arrive from a search engine
+            .filter(
+                F.col("search_engine_domain").isNotNull()
+                & F.col("search_keyword").isNotNull()
+                & (F.col("search_keyword") != "")
             )
+            .select("ip", "search_engine_domain", "search_keyword")
+            # Guard against ties in hit_time_gmt: take one row per IP
+            .dropDuplicates(["ip"])
         )
+
         self.logger.info(
-            f"[filter_purchase_events] {purchase_df.count()} purchase rows retained"
+            f"[get_session_search_origin] {session_df.count()} IPs "
+            f"entered via external search engine"
+        )
+        return session_df
+
+    # ------------------------------------------------------------------
+    # Step 2: Purchase revenue from product-level table
+    # ------------------------------------------------------------------
+
+    def get_purchase_revenue(self, product_df):
+        """
+        Keeps only rows that:
+          (a) are purchase events — event_list contains standalone token "1"
+              (regex guards against matching events 10, 11, 12, etc.)
+          (b) have a positive product_total_revenue recorded
+
+        Per Appendix B: "Revenue is only actualized when the purchase
+        event is set in the events_list."
+
+        Returns: ip | product_name | product_total_revenue
+        """
+        purchase_df = (
+            product_df
+            .filter(
+                F.col("event_list").isNotNull()
+                & F.col("event_list").rlike(r"(^|,)\s*1\s*(,|$)")
+                & F.col("product_total_revenue").isNotNull()
+                & (F.col("product_total_revenue") > 0)
+            )
+            .select("ip", "product_name", "product_total_revenue")
+        )
+
+        self.logger.info(
+            f"[get_purchase_revenue] {purchase_df.count()} purchase product rows"
         )
         return purchase_df
 
     # ------------------------------------------------------------------
-    # Filter: external search referrers only
+    # Step 3 + 4: Attribute + aggregate
     # ------------------------------------------------------------------
 
-    def enrich_with_search_info(self, df):
-        """Add search_engine_domain and search_keyword columns; drop non-search rows."""
-        enriched = (
-            df
-            .withColumn("Search Engine Domain", udf_search_engine(F.col("referrer")))
-            .withColumn("Search Keyword",       udf_keyword(F.col("referrer")))
-            .filter(
-                F.col("Search Engine Domain").isNotNull()
-                & F.col("Search Keyword").isNotNull()
-                & (F.col("Search Keyword") != "")
-            )
-        )
-        self.logger.info(
-            f"[enrich_with_search_info] {enriched.count()} rows from external search referrers"
-        )
-        return enriched
-
-    # ------------------------------------------------------------------
-    # Aggregate
-    # ------------------------------------------------------------------
-
-    def aggregate_revenue(self, df):
+    def attribute_and_aggregate(self, session_df, purchase_df):
         """
-        Sum revenue by (Search Engine Domain, Search Keyword).
-        product_total_revenue is NULL for non-purchase rows; coalesce to 0
-        so we still surface keyword/engine combos even if revenue is 0.
+        Left-joins purchase revenue onto session search origin by IP.
+        ALL search-driven sessions appear in the output — IPs that never
+        purchased (e.g. 112.33.98.231) show Revenue = 0 instead of being
+        dropped. IPs that did purchase contribute their actual revenue.
+
+        Aggregates total revenue by (search_engine_domain, search_keyword)
+        and sorts descending so the best-performing keyword is first.
         """
-        agg_df = (
-            df
+        result_df = (
+            # Start from session_df (left) so every search-driven IP is kept
+            session_df
+            .join(purchase_df, on="ip", how="left")
+            # NULL revenue (no purchase) becomes 0
             .withColumn(
-                "revenue",
+                "product_total_revenue",
                 F.coalesce(F.col("product_total_revenue"), F.lit(0.0)),
             )
-            .groupBy("Search Engine Domain", "Search Keyword")
-            .agg(F.sum("revenue").alias("Revenue"))
+            .groupBy("search_engine_domain", "search_keyword")
+            .agg(F.sum("product_total_revenue").alias("Revenue"))
             .orderBy(F.col("Revenue").desc())
+            .withColumnRenamed("search_engine_domain", "Search Engine Domain")
+            .withColumnRenamed("search_keyword",       "Search Keyword")
         )
-        return agg_df
+
+        self.logger.info(
+            f"[attribute_and_aggregate] {result_df.count()} "
+            f"(engine, keyword) combinations in final output"
+        )
+        return result_df
 
     # ------------------------------------------------------------------
-    # Write
+    # Step 5: Write tab-delimited output
     # ------------------------------------------------------------------
 
     def write_output(self, df, output_path: str, filename: str):
         """
-        Write a single tab-delimited file with a header row.
-        Uses coalesce(1) to produce exactly one output part file,
-        then rename it to the required filename convention.
+        Writes a single tab-delimited .tab file with a header row.
+        coalesce(1) forces one part file; boto3 renames it to the
+        required YYYY-mm-dd_SearchKeywordPerformance.tab convention.
         """
         tmp_path = output_path.rstrip("/") + "/_tmp/"
 
@@ -212,49 +299,36 @@ class SearchKeywordRevenueProcessor:
             .csv(tmp_path)
         )
 
-        # Rename the single part file to the desired filename
-        # (Works in local mode; in Glue use boto3 for S3 rename)
-        self.logger.info(
-            f"[write_output] Tab file written to {tmp_path}. "
-            f"Rename the part-*.csv file to {filename}."
-        )
-
-        # ----------------------------------------------------------------
-        # Rename via boto3 (S3 copy + delete)
-        # ----------------------------------------------------------------
         try:
             import boto3
 
-            bucket, prefix = self._parse_s3_path(tmp_path)
-            final_bucket, final_prefix = self._parse_s3_path(
-                output_path.rstrip("/") + "/" + filename
-            )
+            def parse_s3(path):
+                p = path.replace("s3://", "")
+                parts = p.split("/", 1)
+                return parts[0], parts[1] if len(parts) > 1 else ""
+
+            src_bucket, src_prefix = parse_s3(tmp_path)
+            dst_bucket, dst_key    = parse_s3(output_path.rstrip("/") + "/" + filename)
 
             s3 = boto3.client("s3")
-            response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-            for obj in response.get("Contents", []):
+            objects = s3.list_objects_v2(Bucket=src_bucket, Prefix=src_prefix)
+
+            for obj in objects.get("Contents", []):
                 key = obj["Key"]
                 if key.endswith(".csv") or key.endswith(".tab"):
                     s3.copy_object(
-                        Bucket=final_bucket,
-                        CopySource={"Bucket": bucket, "Key": key},
-                        Key=final_prefix,
+                        Bucket=dst_bucket,
+                        CopySource={"Bucket": src_bucket, "Key": key},
+                        Key=dst_key,
                     )
-                    s3.delete_object(Bucket=bucket, Key=key)
+                    s3.delete_object(Bucket=src_bucket, Key=key)
                     self.logger.info(
-                        f"[write_output] Renamed s3://{bucket}/{key} "
-                        f"-> s3://{final_bucket}/{final_prefix}"
+                        f"[write_output] Renamed "
+                        f"s3://{src_bucket}/{key} -> s3://{dst_bucket}/{dst_key}"
                     )
                     break
         except Exception as exc:
             self.logger.warn(f"[write_output] boto3 rename skipped: {exc}")
-
-    @staticmethod
-    def _parse_s3_path(s3_path: str):
-        """Split 's3://bucket/prefix' into (bucket, prefix)."""
-        path = s3_path.replace("s3://", "")
-        parts = path.split("/", 1)
-        return parts[0], parts[1] if len(parts) > 1 else ""
 
 
 # ---------------------------------------------------------------------------
@@ -264,25 +338,23 @@ class SearchKeywordRevenueProcessor:
 def main():
     processor = SearchKeywordRevenueProcessor(spark, logger)
 
-    # 1. Read conformed product-level data
-    df = processor.read_conformed(PRODUCT_INPUT_PATH)
+    # Step 1: Read all hits → true first hit per IP → search origin
+    all_hits_df = processor.read_all_hits(ALL_HITS_INPUT_PATH)
+    session_df  = processor.get_session_search_origin(all_hits_df)
 
-    # 2. Keep only purchase events (event_list contains "1")
-    purchase_df = processor.filter_purchase_events(df)
+    # Step 2: Read product rows → purchase revenue only
+    product_df  = processor.read_products(PRODUCT_INPUT_PATH)
+    purchase_df = processor.get_purchase_revenue(product_df)
 
-    # 3. Enrich with search engine domain + keyword; drop non-search rows
-    search_df = processor.enrich_with_search_info(purchase_df)
-
-    # 4. Aggregate revenue by (domain, keyword), sorted desc
-    result_df = processor.aggregate_revenue(search_df)
+    # Step 3 + 4: Attribute revenue to keyword, aggregate, sort
+    result_df = processor.attribute_and_aggregate(session_df, purchase_df)
 
     result_df.show(50, truncate=False)
 
-    # 5. Write tab-delimited output
+    # Step 5: Write output file
     processor.write_output(result_df, CURATED_OUTPUT_PATH, OUTPUT_FILENAME)
 
-    logger.info(f"[main] Done. Output: {CURATED_OUTPUT_PATH}{OUTPUT_FILENAME}")
-
+    logger.info(f"[main] Done -> {CURATED_OUTPUT_PATH}{OUTPUT_FILENAME}")
     job.commit()
 
 
