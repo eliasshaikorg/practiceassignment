@@ -110,8 +110,8 @@ resource "aws_s3_object" "sample-data" {
 # 6.1. Upload sample data 2 to S3 raw 
 resource "aws_s3_object" "sample-data2" {
   bucket = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
-  key    = "externalclickdata/inputdata2.sql"
-  source = "data/inputdata2.sql"
+  key    = "externalclickdata/inputdata3.sql"
+  source = "data/inputdata3.sql"
 }
 
 
