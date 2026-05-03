@@ -107,6 +107,13 @@ resource "aws_s3_object" "sample-data" {
   source = "data/inputdata.sql"
 }
 
+# 6.1. Upload sample data 2 to S3 raw 
+resource "aws_s3_object" "sample-data2" {
+  bucket = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
+  key    = "externalclickdata/inputdata2.sql"
+  source = "data/inputdata2.sql"
+}
+
 
 # 7. Upload your script to S3
 resource "aws_s3_object" "glue_script_conformed_to_curated" {
