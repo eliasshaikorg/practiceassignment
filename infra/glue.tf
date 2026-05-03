@@ -69,20 +69,20 @@ resource "aws_iam_role_policy" "glue_s3_access" {
 }
 
 # 4. Upload your script to S3
-resource "aws_s3_object" "glue_script" {
+resource "aws_s3_object" "glue_script_raw_to_conformed" {
   bucket = "s3-glue-scripts-application-dev-bucket"
-  key    = "glue/scripts/gj-rev-ext-search.py"
-  source = "scripts/gj-rev-ext-search.py" # Local path to your script
-  source_hash = filebase64sha256("scripts/gj-rev-ext-search.py")
+  key    = "glue/scripts/gj-rev-ext-search-raw-to-conformed.py"
+  source = "scripts/gj-rev-ext-search-raw-to-conformed.py" # Local path to your script
+  source_hash = filebase64sha256("scripts/gj-rev-ext-search-raw-to-conformed.py")
 }
 
-# 4. Define the Glue Job
-resource "aws_glue_job" "externalrevenue" {
-  name     = "gj-rev-ext-search"
+# 5. Define the Glue Job
+resource "aws_glue_job" "externalrevenue_raw_to_conformed" {
+  name     = "gj-rev-ext-search-raw-to-conformed"
   role_arn = aws_iam_role.glue_role.arn
 
   command {
-    script_location = "s3://${aws_s3_object.glue_script.bucket}/${aws_s3_object.glue_script.key}"
+    script_location = "s3://${aws_s3_object.glue_script_raw_to_conformed.bucket}/${aws_s3_object.glue_script_raw_to_conformed.key}"
     python_version  = "3"
   }
 
@@ -91,9 +91,33 @@ resource "aws_glue_job" "externalrevenue" {
   number_of_workers = 2
 }
 
-# 5. Upload sample data  to S3 raw 
+# 6. Upload sample data  to S3 raw 
 resource "aws_s3_object" "sample-data" {
   bucket = "s3-rawdev-bucket-${data.aws_caller_identity.current.account_id}"
   key    = "externalclickdata/inputdata.sql"
   source = "data/inputdata.sql"
+}
+
+
+# 7. Upload your script to S3
+resource "aws_s3_object" "glue_script_conformed_to_curated" {
+  bucket = "s3-glue-scripts-application-dev-bucket"
+  key    = "glue/scripts/gj-rev-ext-search-conformed-to-curated.py"
+  source = "scripts/gj-rev-ext-search-conformed-to-curated.py" # Local path to your script
+  source_hash = filebase64sha256("scripts/gj-rev-ext-search-conformed-to-curated.py")
+}
+
+# 8. Define the Glue Job
+resource "aws_glue_job" "externalrevenue_conformed_to_curated" {
+  name     = "gj-rev-ext-search-conformed-to-curated"
+  role_arn = aws_iam_role.glue_role.arn
+
+  command {
+    script_location = "s3://${aws_s3_object.glue_script_conformed_to_curated.bucket}/${aws_s3_object.glue_script_conformed_to_curated.key}"
+    python_version  = "3"
+  }
+
+  glue_version      = "4.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
 }
