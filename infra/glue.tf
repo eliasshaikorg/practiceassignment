@@ -86,6 +86,14 @@ resource "aws_glue_job" "externalrevenue_raw_to_conformed" {
     python_version  = "3"
   }
 
+  default_arguments = {
+    # Custom variable
+    "--INPUT_FILE" = "s3://s3-rawdev-bucket-528733132057/externalclickdata/inputdata.sql"
+    
+    # Standard Glue arguments
+    "--job-language"        = "python"
+    "--enable-metrics"      = "true"  
+
   glue_version      = "4.0"
   worker_type       = "G.1X"
   number_of_workers = 2
