@@ -97,6 +97,7 @@ resource "aws_glue_job" "externalrevenue_raw_to_conformed" {
   glue_version      = "4.0"
   worker_type       = "G.1X"
   number_of_workers = 2
+  }
 }
 
 # 6. Upload sample data  to S3 raw 
